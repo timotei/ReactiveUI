@@ -160,12 +160,16 @@ namespace EventBuilder
                 return "";
             return string.Join(" ", type.GenericParameters.Select(p =>
             {
-                if (!p.HasConstraints && !p.HasDefaultConstructorConstraint) return "";
+                if (!p.HasConstraints && !p.HasDefaultConstructorConstraint && !p.HasReferenceTypeConstraint)
+                    return "";
                 var constraints = p.Constraints.Select(t => {
                     var ret = t.FullName;
                     return ret == "System.ValueType" ? "struct" : ret;
                 }).ToList();
-                if (p.HasDefaultConstructorConstraint && !p.HasNotNullableValueTypeConstraint) constraints.Add("new()");
+                if (p.HasDefaultConstructorConstraint && !p.HasNotNullableValueTypeConstraint)
+                    constraints.Add("new()");
+                if (p.HasReferenceTypeConstraint)
+                    constraints.Add("class");
                 return " where " + p.Name + " : " + string.Join(", ", constraints);
             }));
         }
