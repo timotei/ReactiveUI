@@ -327,7 +327,8 @@ namespace EventBuilder
         public static string RenameBogusWinRTTypes(string typeName)
         {
             if (substitutionList.ContainsKey(typeName)) return substitutionList[typeName];
-            return typeName;
+            // NB: Inner types in Mono.Cecil get reported as 'Foo/Bar'
+            return typeName.Replace('/', '.');
         }
 
         public static string GetEventArgsTypeForEvent(EventDefinition ei)
