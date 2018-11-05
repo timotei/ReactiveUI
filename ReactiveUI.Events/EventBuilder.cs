@@ -119,7 +119,19 @@ namespace EventBuilder
                         GenericArgs = GetGenericArgs(y.Type),
                         GenericConstraints = GetGenericConstraints(y.Type),
                         Type = y.Type,
-                        Events = y.Events.Select(z => new PublicEventInfo() {
+                        Events = y.Events
+                                  .Where(e => {
+                                             if (!(e.EventType is TypeDefinition)) {
+                                                 return true;
+                                             }
+
+                                             var invokeMethod =
+                                                 ((TypeDefinition) e.EventType)
+                                                 .Methods.FirstOrDefault(m => m.Name == "Invoke");
+                                             return invokeMethod == null ||
+                                                    invokeMethod.ReturnType?.FullName == "System.Void";
+                                         })
+                                         .Select(z => new PublicEventInfo() {
                             Name = z.Name,
                             EventHandlerType = GetRealTypeName(z.EventType),
                             EventArgsType = GetEventArgsTypeForEvent(z),
