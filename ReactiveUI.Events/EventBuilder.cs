@@ -1,19 +1,17 @@
-﻿using Nustache.Core;
+﻿using Mono.Cecil;
+using Nustache.Core;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Mono.Cecil;
-using System.Text;
-using System.Threading.Tasks;
-using System.Collections;
 using System.Reflection;
+using System.Text;
 
 namespace EventBuilder
 {
-    class Program
+    internal class Program
     {
-        static IEnumerable<string> ResolveWildcards(string s)
+        private static IEnumerable<string> ResolveWildcards(string s)
         {
             if (!HasWildcard(s))
                 return new[] { s };
@@ -24,17 +22,17 @@ namespace EventBuilder
             return Directory.GetFiles(Path.GetFullPath(dir), Path.GetFileName(s));
         }
 
-        static bool HasWildcard(string path)
+        private static bool HasWildcard(string path)
         {
             return path.IndexOfAny(new[] { '*', '?' }) != -1;
         }
 
-        static bool IsDirectory(string path)
+        private static bool IsDirectory(string path)
         {
             return !HasWildcard(path) && File.GetAttributes(path).HasFlag(FileAttributes.Directory);
         }
 
-        static void Main(string[] args)
+        private static void Main(string[] args)
         {
             var templateFile = args.First(x => x.EndsWith(".mustache"));
             var libDirs = args.Where(IsDirectory);
@@ -44,25 +42,29 @@ namespace EventBuilder
 
             // NB: I'm too lazy to fix this properly
             var monoDroidDir = targetAssemblyDirs.FirstOrDefault(x => x.ToLowerInvariant().Contains("monoandroid"));
-            if (monoDroidDir != null) {
-                // /Developer/MonoAndroid/lib/mandroid/platforms/android-15 => 
+            if (monoDroidDir != null)
+            {
+                // /Developer/MonoAndroid/lib/mandroid/platforms/android-15 =>
                 // /Developer/MonoAndroid/lib/xbuild-frameworks/MonoAndroid/v1.0
-                targetAssemblyDirs.Add(Path.Combine(monoDroidDir, 
+                targetAssemblyDirs.Add(Path.Combine(monoDroidDir,
                     "..", "..", "..",
                     "xbuild-frameworks", "MonoAndroid", "v1.0"));
             }
 
             // NB: Double down on Laziness
             var xamMacDir = targetAssemblyDirs.FirstOrDefault(x => x.ToLowerInvariant().Contains("xamarin.mac"));
-            if (xamMacDir != null) {
+            if (xamMacDir != null)
+            {
                 targetAssemblyDirs.Add("/Library/Frameworks/Mono.framework/Versions/Current/lib/mono/4.5");
             }
 
-	    // NB: Triple down on Laziness
-            if (targetAssemblyNames.Any(x => x.ToLowerInvariant().Contains("xamarin.forms"))) {
+            // NB: Triple down on Laziness
+            if (targetAssemblyNames.Any(x => x.ToLowerInvariant().Contains("xamarin.forms")))
+            {
                 targetAssemblyDirs.Add("/Library/Frameworks/Mono.framework/Versions/Current/lib/mono/xbuild-frameworks/.NETPortable/v4.5/Profile/Profile78");
             }
 
+            Console.Error.WriteLine("// Target assembly dirs: " + string.Join(" ", targetAssemblyDirs));
             var resolver = new PathSearchAssemblyResolver(targetAssemblyDirs.ToArray());
             var rp = new ReaderParameters() { AssemblyResolver = resolver };
             var targetAssemblies = targetAssemblyNames
@@ -112,36 +114,41 @@ namespace EventBuilder
             var namespaceData = publicTypesWithEvents
                 .GroupBy(x => x.Type.Namespace)
                 .Where(x => !string.IsNullOrEmpty(x.Key))
-                .Select(x => new NamespaceInfo() {
+                .Select(x => new NamespaceInfo()
+                {
                     Name = x.Key,
-                    Types = x.Select(y => new PublicTypeInfo() {
+                    Types = x.Select(y => new PublicTypeInfo()
+                    {
                         Name = y.Type.Name,
                         GenericArgs = GetGenericArgs(y.Type),
                         GenericConstraints = GetGenericConstraints(y.Type),
                         Type = y.Type,
                         Events = y.Events
-                                  .Where(e => {
-                                             if (!(e.EventType is TypeDefinition)) {
-                                                 return true;
-                                             }
+                                  .Where(e =>
+                                  {
+                                      if (!(e.EventType is TypeDefinition))
+                                      {
+                                          return true;
+                                      }
 
-                                             var invokeMethod =
-                                                 ((TypeDefinition) e.EventType)
-                                                 .Methods.FirstOrDefault(m => m.Name == "Invoke");
+                                      var invokeMethod =
+                                          ((TypeDefinition)e.EventType)
+                                          .Methods.FirstOrDefault(m => m.Name == "Invoke");
 
-                                              return invokeMethod == null || invokeMethod.ReturnType != null &&
-                                                     invokeMethod.ReturnType.FullName == "System.Void";
-                                        })
-                                         .Select(z => new PublicEventInfo() {
-                            Name = z.Name,
-                            EventHandlerType = GetRealTypeName(z.EventType),
-                            EventArgsType = GetEventArgsTypeForEvent(z),
-                        }).ToArray(),
+                                      return invokeMethod == null || invokeMethod.ReturnType != null &&
+                                             invokeMethod.ReturnType.FullName == "System.Void";
+                                  })
+                                         .Select(z => new PublicEventInfo()
+                                         {
+                                             Name = z.Name,
+                                             EventHandlerType = GetRealTypeName(z.EventType),
+                                             EventArgsType = GetEventArgsTypeForEvent(z),
+                                         }).ToArray(),
                     }).ToArray()
                 }).ToArray();
 
-
-            foreach (var type in namespaceData.SelectMany(x => x.Types)) {
+            foreach (var type in namespaceData.SelectMany(x => x.Types))
+            {
                 var parentWithEvents = GetParentEventType(types, type.Type);
                 if (parentWithEvents == null) continue;
 
@@ -175,7 +182,8 @@ namespace EventBuilder
             {
                 if (!p.HasConstraints && !p.HasDefaultConstructorConstraint && !p.HasReferenceTypeConstraint)
                     return "";
-                var constraints = p.Constraints.Select(t => {
+                var constraints = p.Constraints.Select(t =>
+                {
                     var ret = t.FullName;
                     return ret == "System.ValueType" ? "struct" : ret;
                 }).ToList();
@@ -204,7 +212,7 @@ namespace EventBuilder
                 .SelectMany(x => SafeGetTypes(x))
                 .Where(x => x.IsPublic && !x.IsInterface && !x.HasGenericParameters && isCocoaDelegateName(x.Name))
                 .Where(x => x.BaseType == null || !x.BaseType.FullName.Contains("MulticastDelegate"))
-		.Where(x => !garbageTypeList.Any(y => x.FullName.Contains(y)))
+        .Where(x => !garbageTypeList.Any(y => x.FullName.Contains(y)))
                 .Select(x => new { Type = x, Delegates = GetPublicDelegateMethods(x) })
                 .Where(x => x.Delegates.Length > 0)
                 .ToArray();
@@ -212,21 +220,26 @@ namespace EventBuilder
             var namespaceData = publicDelegateTypes
                 .GroupBy(x => x.Type.Namespace)
                 //.Where(x => !garbageNamespaceList.Contains(x.Key))
-                .Select(x => new NamespaceInfo() {
+                .Select(x => new NamespaceInfo()
+                {
                     Name = x.Key,
-                    Types = x.Select(y => new PublicTypeInfo() {
+                    Types = x.Select(y => new PublicTypeInfo()
+                    {
                         Name = y.Type.Name,
                         Type = y.Type,
                         Abstract = y.Type.IsAbstract ? "abstract" : "",
-                        ZeroParameterMethods = y.Delegates.Where(z => z.Parameters.Count == 0).Select(z => new ParentInfo() {
+                        ZeroParameterMethods = y.Delegates.Where(z => z.Parameters.Count == 0).Select(z => new ParentInfo()
+                        {
                             Name = z.Name,
                         }).ToArray(),
-                        SingleParameterMethods = y.Delegates.Where(z => z.Parameters.Count == 1).Select(z => new SingleParameterMethod() {
+                        SingleParameterMethods = y.Delegates.Where(z => z.Parameters.Count == 1).Select(z => new SingleParameterMethod()
+                        {
                             Name = z.Name,
                             ParameterType = z.Parameters[0].ParameterType.FullName,
                             ParameterName = z.Parameters[0].Name,
                         }).ToArray(),
-                        MultiParameterMethods = y.Delegates.Where(z => z.Parameters.Count > 1).Select(z => new MultiParameterMethod() {
+                        MultiParameterMethods = y.Delegates.Where(z => z.Parameters.Count > 1).Select(z => new MultiParameterMethod()
+                        {
                             Name = z.Name,
                             ParameterList = String.Join(", ", z.Parameters.Select(a => String.Format("{0} {1}", a.ParameterType.FullName, a.Name))),
                             ParameterTypeList = String.Join(", ", z.Parameters.Select(a => a.ParameterType.FullName)),
@@ -238,14 +251,14 @@ namespace EventBuilder
             return namespaceData;
         }
 
-        static bool isCocoaDelegateName(string name)
+        private static bool isCocoaDelegateName(string name)
         {
             if (name.EndsWith("Delegate", StringComparison.OrdinalIgnoreCase)) return true;
             if (name.EndsWith("UITableViewSource", StringComparison.OrdinalIgnoreCase)) return true;
             return false;
         }
 
-        class ECMP : IEqualityComparer<EventDefinition>
+        private class ECMP : IEqualityComparer<EventDefinition>
         {
             public static ECMP Instance = new ECMP();
 
@@ -333,7 +346,7 @@ namespace EventBuilder
             return ret.Replace('/', '.');
         }
 
-        static Dictionary<string, string> substitutionList = new Dictionary<string, string> {
+        private static Dictionary<string, string> substitutionList = new Dictionary<string, string> {
             { "Windows.UI.Xaml.Data.PropertyChangedEventArgs", "global::System.ComponentModel.PropertyChangedEventArgs" },
             { "Windows.UI.Xaml.Data.PropertyChangedEventHandler", "global::System.ComponentModel.PropertyChangedEventHandler" },
             { "Windows.Foundation.EventHandler", "EventHandler" },
@@ -360,8 +373,10 @@ namespace EventBuilder
             var ret = RenameBogusWinRTTypes(param.ParameterType.FullName);
 
             var generic = ei.EventType as GenericInstanceType;
-            if (generic != null) {
-                foreach(var kvp in type.GenericParameters.Zip(generic.GenericArguments, (name, actual) => new { name, actual })) {
+            if (generic != null)
+            {
+                foreach (var kvp in type.GenericParameters.Zip(generic.GenericArguments, (name, actual) => new { name, actual }))
+                {
                     var realType = GetRealTypeName(kvp.actual);
 
                     ret = ret.Replace(kvp.name.FullName, realType);
@@ -378,7 +393,8 @@ namespace EventBuilder
                 type.BaseType.Resolve() :
                 null;
 
-            while (current != null) {
+            while (current != null)
+            {
                 yield return current.Resolve();
 
                 current = current.BaseType != null ?
@@ -387,7 +403,7 @@ namespace EventBuilder
             }
         }
 
-        public static IEnumerable<Tuple<GenericParameter,TypeReference>> GetParentsGenericArgsRemap(TypeDefinition type)
+        public static IEnumerable<Tuple<GenericParameter, TypeReference>> GetParentsGenericArgsRemap(TypeDefinition type)
         {
             var current = type.BaseType;
             while (current != null)
@@ -406,18 +422,18 @@ namespace EventBuilder
         }
     }
 
-    class NamespaceInfo
+    internal class NamespaceInfo
     {
         public string Name { get; set; }
         public IEnumerable<PublicTypeInfo> Types { get; set; }
     }
 
-    class PublicTypeInfo
+    internal class PublicTypeInfo
     {
         public string Name { get; set; }
         public string GenericArgs { get; set; }
         public string GenericConstraints { get; set; }
-        public string Abstract { get; set; } 
+        public string Abstract { get; set; }
         public TypeDefinition Type { get; set; }
         public ParentInfo Parent { get; set; }
         public IEnumerable<PublicEventInfo> Events { get; set; }
@@ -426,27 +442,27 @@ namespace EventBuilder
         public IEnumerable<MultiParameterMethod> MultiParameterMethods { get; set; }
     }
 
-    class ParentInfo
+    internal class ParentInfo
     {
         public string Name { get; set; }
         public string GenericArgs { get; set; }
     }
 
-    class PublicEventInfo
+    internal class PublicEventInfo
     {
         public string Name { get; set; }
         public string EventHandlerType { get; set; }
         public string EventArgsType { get; set; }
     }
 
-    class SingleParameterMethod
+    internal class SingleParameterMethod
     {
         public string Name { get; set; }
         public string ParameterType { get; set; }
         public string ParameterName { get; set; }
     }
 
-    class MultiParameterMethod
+    internal class MultiParameterMethod
     {
         public string Name { get; set; }
         public string ParameterList { get; set; }  // "FooType foo, BarType bar, BazType baz"
@@ -454,9 +470,9 @@ namespace EventBuilder
         public string ParameterNameList { get; set; }  // "foo, bar, baz"
     }
 
-    class PathSearchAssemblyResolver : IAssemblyResolver
+    internal class PathSearchAssemblyResolver : IAssemblyResolver
     {
-        string[] targetAssemblyDirs;
+        private string[] targetAssemblyDirs;
 
         internal IList<AssemblyDefinition> LoadedAssemblies { get; set; }
 
