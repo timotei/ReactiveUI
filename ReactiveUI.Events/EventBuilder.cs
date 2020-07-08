@@ -72,7 +72,9 @@ namespace EventBuilder
             resolver.LoadedAssemblies = targetAssemblies.ToList();
             var template = File.ReadAllText(templateFile, Encoding.UTF8);
 
+            Console.Error.WriteLine("// Creating event template information");
             var namespaceData = CreateEventTemplateInformation(targetAssemblies);
+            Console.Error.WriteLine("// Creating delegate template information");
             var delegateData = CreateDelegateTemplateInformation(targetAssemblies);
 
             var result = Render.StringToString(template, new { Namespaces = namespaceData, DelegateNamespaces = delegateData })
@@ -107,10 +109,12 @@ namespace EventBuilder
                 .Where(x => x.IsPublic && !IsObsolete(x.CustomAttributes))
                 .Where(x => !garbageNamespaceList.Contains(x.Namespace))
                 .ToArray();
+            Console.Error.WriteLine($"{types.Length}");
             var publicTypesWithEvents = types
                 .Select(x => new { Type = x, Events = GetPublicEvents(types, x) })
                 .Where(x => x.Events.Length > 0)
                 .ToArray();
+            Console.Error.WriteLine($"// Found {publicTypesWithEvents.Length} public types with events.");
             var namespaceData = publicTypesWithEvents
                 .GroupBy(x => x.Type.Namespace)
                 .Where(x => !string.IsNullOrEmpty(x.Key))
@@ -165,7 +169,7 @@ namespace EventBuilder
                             if (p == null)
                                 return ret.FullName;
                         }
-                        return ret.FullName;
+                        return ret == null ? p.FullName : ret.FullName;
                     };
                     type.Parent.GenericArgs = "<" + string.Join(",", parentWithEvents.GenericParameters.Select(ReMap)) + ">";
                 }
@@ -190,7 +194,7 @@ namespace EventBuilder
                 if (p.HasDefaultConstructorConstraint && !p.HasNotNullableValueTypeConstraint)
                     constraints.Add("new()");
                 if (p.HasReferenceTypeConstraint)
-                    constraints.Add("class");
+                    constraints.Insert(0, "class");
                 return " where " + p.Name + " : " + string.Join(", ", constraints);
             }));
         }
@@ -287,12 +291,21 @@ namespace EventBuilder
             return null;
         }
 
+
+        private static Dictionary<TypeDefinition, EventDefinition[]> TypePublicEventsCache = new Dictionary<TypeDefinition, EventDefinition[]>(); 
         public static EventDefinition[] GetPublicEvents(IEnumerable<TypeDefinition> group, TypeDefinition t)
         {
+            EventDefinition[] definitions;
+            if (TypePublicEventsCache.TryGetValue(t, out definitions)) {
+                return definitions;
+            }
             var parentEventType = GetParentEventType(group, t);
             var includedParents = GetParents(t);
             if (parentEventType != null) includedParents = includedParents.TakeWhile(parent => parent.FullName != parentEventType.FullName);
-            return new[] { t }.Concat(includedParents).SelectMany(GetPublicEvents).Distinct(ECMP.Instance).ToArray();
+            definitions = new[] {t}.Concat(includedParents).SelectMany(GetPublicEvents).Distinct(ECMP.Instance)
+                                   .ToArray();
+            TypePublicEventsCache[t] = definitions;
+            return definitions;
         }
 
         private static bool Contains(IEnumerable<TypeDefinition> ie, TypeDefinition type)
